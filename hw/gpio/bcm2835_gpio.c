@@ -15,6 +15,7 @@
 #include "qemu/log.h"
 #include "qemu/timer.h"
 #include "qapi/error.h"
+#include "qemu/main-loop.h"
 #include "hw/sysbus.h"
 #include "hw/sd/sd.h"
 #include "hw/gpio/bcm2835_gpio.h"
@@ -67,14 +68,31 @@ typedef struct PACKET {
 	int8_t val;
 } _PACKET;
 
-static void handle_switch_packet(struct PACKET* p) {
-	if(p->dev > sizeof(pins))
+static void handle_switch_packet(BCM2835GpioState* s, struct PACKET* p) {
+	if(p->dev > sizeof(s->out))
 		return;
 
-	if(pins[p->dev].function == GPIO_INPUT) 
+	// if this pin is configured as input
+	if(s->fsel[p->dev] == 0)
 	{
 		printf("switch %d changed to %d\n", p->dev, p->val);
 		qemu_set_irq(s->out[p->dev], p->val);
+
+		// FSEL0?
+		if(p->dev < 32)
+		{
+			if(p->val)
+				s->lev0 |= (1 << p->dev);
+			else
+				s->lev0 &= ~(1 << p->dev);
+		}
+		else 
+		{
+			if(p->val)
+				s->lev1 |= (1 << (p->dev - 32));
+			else
+				s->lev1 &= ~(1 << (p->dev - 32));
+		}
 	}
 }
 
@@ -82,7 +100,7 @@ static void socket_callback(void* opaque) {
 	int8_t buf[128] = {0};
 	ssize_t cnt;
 
-    BCM2835GPIOState *s = BCM2835_GPIO(opaque);
+    BCM2835GpioState* s = BCM2835_GPIO(opaque);
 	if((cnt = read(s->sockIn, buf, 128)) < 1) {
 		perror(__func__);
 	}
@@ -90,7 +108,7 @@ static void socket_callback(void* opaque) {
 	struct PACKET* p = (struct PACKET*)buf;
 
 	if(p->op == SWITCH_CHANGE) 
-		handle_switch_packet(p);
+		handle_switch_packet(s, p);
 	else
 		printf("unhandled packet for %d %d\n", p->dev, p->val);
 }
@@ -375,6 +393,29 @@ static void bcm2835_gpio_init(Object *obj)
             &bcm2835_gpio_ops, s, "bcm2835_gpio", 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
     qdev_init_gpio_out(dev, s->out, 54);
+}
+
+static void bcm2835_gpio_realize(DeviceState *dev, Error **errp)
+{
+    BCM2835GpioState *s = BCM2835_GPIO(dev);
+    Object *obj;
+    Error *err = NULL;
+
+    obj = object_property_get_link(OBJECT(dev), "sdbus-sdhci", &err);
+    if (obj == NULL) {
+        error_setg(errp, "%s: required sdhci link not found: %s",
+                __func__, error_get_pretty(err));
+        return;
+    }
+    s->sdbus_sdhci = SD_BUS(obj);
+
+    obj = object_property_get_link(OBJECT(dev), "sdbus-sdhost", &err);
+    if (obj == NULL) {
+        error_setg(errp, "%s: required sdhost link not found: %s",
+                __func__, error_get_pretty(err));
+        return;
+    }
+    s->sdbus_sdhost = SD_BUS(obj);
 
 	/* create sockIn */
 	if((s->sockIn = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
@@ -416,30 +457,6 @@ static void bcm2835_gpio_init(Object *obj)
 		return;
 	}
 
-
-}
-
-static void bcm2835_gpio_realize(DeviceState *dev, Error **errp)
-{
-    BCM2835GpioState *s = BCM2835_GPIO(dev);
-    Object *obj;
-    Error *err = NULL;
-
-    obj = object_property_get_link(OBJECT(dev), "sdbus-sdhci", &err);
-    if (obj == NULL) {
-        error_setg(errp, "%s: required sdhci link not found: %s",
-                __func__, error_get_pretty(err));
-        return;
-    }
-    s->sdbus_sdhci = SD_BUS(obj);
-
-    obj = object_property_get_link(OBJECT(dev), "sdbus-sdhost", &err);
-    if (obj == NULL) {
-        error_setg(errp, "%s: required sdhost link not found: %s",
-                __func__, error_get_pretty(err));
-        return;
-    }
-    s->sdbus_sdhost = SD_BUS(obj);
 }
 
 static void bcm2835_gpio_class_init(ObjectClass *klass, void *data)
