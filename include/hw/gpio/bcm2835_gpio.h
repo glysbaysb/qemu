@@ -30,6 +30,10 @@ typedef struct BCM2835GpioState {
     uint32_t lev0, lev1;
     uint8_t sd_fsel;
     qemu_irq out[54];
+
+	/* todo: come up with better names */
+	int sockIn, // used to recv data. Registered with qemu_set_fd_handler
+		sockOut; // used to send data
 } BCM2835GpioState;
 
 #define TYPE_BCM2835_GPIO "bcm2835_gpio"
