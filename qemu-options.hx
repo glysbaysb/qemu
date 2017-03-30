@@ -2973,6 +2973,36 @@ STEXI
 ETEXI
 DEFHEADING()
 
+DEFHEADING(Eclipse gnuarmeclipse Plugin specific:)
+STEXI
+
+The gnuarmeclipse Plugin passes completly different arguments to QEMU.
+Those arguments are either mapped to the normal QEMU arguments or ignored
+
+@table @option
+ETEXI
+
+DEF("board", HAS_ARG, QEMU_OPTION_board, \
+    "-board [type=]name\n", QEMU_ARCH_ALL)
+STEXI
+@item -board [type=]@var{name}
+@findex -board
+Exactly the same as @code{-machine}
+ETEXI
+
+DEF("mcu", HAS_ARG, QEMU_OPTION_mcu,
+    "-mcu device    ignored\n", QEMU_ARCH_ALL)
+STEXI
+@item -mcu @var{model}
+@findex -mcu
+ignored
+ETEXI
+
+STEXI
+@end table
+ETEXI
+DEFHEADING()
+
 DEFHEADING(Debug/Expert options)
 STEXI
 @table @option

@@ -3707,6 +3707,7 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_M:
             case QEMU_OPTION_machine:
+            case QEMU_OPTION_board:
                 olist = qemu_find_opts("machine");
                 opts = qemu_opts_parse_noisily(olist, optarg, true);
                 if (!opts) {
