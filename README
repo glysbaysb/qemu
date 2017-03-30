@@ -22,14 +22,15 @@ $ cd qemu;mkdir build;cd build
 $ PKG_CONFIG_LIBDIR=/usr/i686-w64-mingw32/sys-root/mingw/lib/pkgconfig/ ../configure --target-list=arm-softmmu --enable-trace-backends=simple --cross-prefix=i686-w64-mingw32- --enable-debug --extra-cflags="-m32"  --extra-ldflags="-m32" --cpu=x32 --disable-werror --disable-vnc --disable-sdl --disable-bluez  --disable-slirp --disable-gtk --disable-libusb --disable-usb-redir --disable-gnutls --disable-nettle --disable-curl --disable-libnfs --disable-smartcard --disable-rbd --disable-vde --disable-netmap --audio-drv-list=
 $ make -j4
 
-TODO: Ungefähre Erklärung der configure parameter?
+TODO/FRAGE: Ungefähre Erklärung der configure parameter?
 
 Start script
 ============
-QEMU needs some time to initalize. When started locally by Eclipse appearently too long for Eclipse's taste, so it kills QEMU and complains about a timeout.
+QEMU needs some time to initalize. When started locally by Eclipse appearently that is too long for Eclipse's taste, so it kills QEMU and complains about a timeout.
 So start it manually, and then connect "remotely" (as in localhost:1234) in Eclipse
 
 qemu-system-arm.exe -m 128M -M raspi2 -s -nographic -S
+TODO/FRAGE: Ungefähre Erklärung der configure parameter?
 
 (this kinda makes all of the changes in the "eclipse-fix" branch obsolete, so those could be reverted...)
 
