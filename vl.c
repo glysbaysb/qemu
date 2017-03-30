@@ -1939,6 +1939,7 @@ typedef struct QEMUOption {
 
 static const QEMUOption qemu_options[] = {
     { "h", 0, QEMU_OPTION_h, QEMU_ARCH_ALL },
+    { "verbose", 0, QEMU_OPTION_verbose, QEMU_ARCH_ALL },
 #define QEMU_OPTIONS_GENERATE_OPTIONS
 #include "qemu-options-wrapper.h"
     { NULL },
@@ -2984,6 +2985,12 @@ int main(int argc, char **argv, char **envp)
     QSIMPLEQ_HEAD(, BlockdevOptions_queue) bdo_queue
         = QSIMPLEQ_HEAD_INITIALIZER(bdo_queue);
 
+        
+        
+    for(int i = 0; i < argc; i++)
+      printf("%s ", argv[i]);
+    printf("\n");    
+        
     module_call_init(MODULE_INIT_TRACE);
 
     qemu_init_cpu_list();
@@ -3355,6 +3362,8 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_version:
                 version();
                 exit(0);
+                break;
+            case QEMU_OPTION_verbose:
                 break;
             case QEMU_OPTION_m:
                 opts = qemu_opts_parse_noisily(qemu_find_opts("memory"),
