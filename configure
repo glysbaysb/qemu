@@ -1843,20 +1843,20 @@ fi
 ##########################################
 # avx2 optimization requirement check
 
-cat > $TMPC << EOF
-#pragma GCC push_options
-#pragma GCC target("avx2")
-#include <cpuid.h>
-#include <immintrin.h>
-static int bar(void *a) {
-    __m256i x = *(__m256i *)a;
-    return _mm256_testz_si256(x, x);
-}
-int main(int argc, char *argv[]) { return bar(argv[0]); }
-EOF
-if compile_object "" ; then
-  avx2_opt="yes"
-fi
+#cat > $TMPC << EOF
+##pragma GCC push_options
+##pragma GCC target("avx2")
+##include <cpuid.h>
+##include <immintrin.h>
+#static int bar(void *a) {
+#    __m256i x = *(__m256i *)a;
+#    return _mm256_testz_si256(x, x);
+#}
+#int main(int argc, char *argv[]) { return bar(argv[0]); }
+#EOF
+#if compile_object "" ; then
+#  avx2_opt="yes"
+#fi
 
 #########################################
 # zlib check
