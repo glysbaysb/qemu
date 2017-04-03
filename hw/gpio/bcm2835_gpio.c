@@ -118,6 +118,19 @@ static void pin_changed(int sock, int pin, int val)
 	struct PACKET p = {0};
 	struct sockaddr_in sin;
 
+	{
+		long            ms; // Milliseconds
+		time_t          s;  // Seconds
+		struct timespec spec;
+
+		clock_gettime(CLOCK_REALTIME, &spec);
+
+		s  = spec.tv_sec;
+		ms = round(spec.tv_nsec / 1.0e6); // Convert nanoseconds to milliseconds
+    
+		printf("[%"PRIdMAX".%03ld] pin %d = %d\n", (intmax_t)s, ms, pin, val);
+	}
+	
 	/* create packet */
 	p.op = LED_CHANGE;
 	p.dev = pin;
