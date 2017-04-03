@@ -12,6 +12,7 @@ it requires cygwin with (at least) these packages:
 * mingw64-i686-glib2.0
 * mingw64-i686-pixman
 * mingw64-i686-pkg-config
+* mingw64-i686-pcre
 * flex
 * bison
 (probably also a few of the recommend or optional ones from http://wiki.qemu-project.org/Hosts/W32#Native_builds_with_Cygwin)
@@ -28,9 +29,10 @@ Start script
 ============
 QEMU needs some time to initalize. When started locally by Eclipse appearently that is too long for Eclipse's taste, so it kills QEMU and complains about a timeout.
 So start it manually, and then connect "remotely" (as in localhost:1234) in Eclipse
-
-qemu-system-arm.exe -m 128M -M raspi2 -s -nographic -S
-TODO/FRAGE: Ungefähre Erklärung der configure parameter?
-
 (this kinda makes all of the changes in the "eclipse-fix" branch obsolete, so those could be reverted...)
+
+qemu-system-arm.exe -m 128M -machine raspi2 -s -nographic -S
+"-m" specifies RAM size. Maybe use a smaller value to support older PCs? 1GB would be ridicliously high...
+"-S" starts the internal gdbserver and waits for a connection on port 1234
+
 
