@@ -75,7 +75,6 @@ static void handle_switch_packet(BCM2835GpioState* s, struct PACKET* p) {
 	// if this pin is configured as input
 	if(s->fsel[p->dev] == 0)
 	{
-		printf("switch %d changed to %d\n", p->dev, p->val);
 		qemu_set_irq(s->out[p->dev], p->val);
 
 		// FSEL0?
@@ -110,7 +109,7 @@ static void socket_callback(void* opaque) {
 	if(p->op == SWITCH_CHANGE) 
 		handle_switch_packet(s, p);
 	else
-		printf("unhandled packet for %d %d\n", p->dev, p->val);
+		fprintf(stderr, "unhandled packet for %d %d\n", p->dev, p->val);
 }
 
 static void pin_changed(int sock, int pin, int val) 
@@ -118,19 +117,6 @@ static void pin_changed(int sock, int pin, int val)
 	struct PACKET p = {0};
 	struct sockaddr_in sin;
 
-	{
-		long            ms; // Milliseconds
-		time_t          s;  // Seconds
-		struct timespec spec;
-
-		clock_gettime(CLOCK_REALTIME, &spec);
-
-		s  = spec.tv_sec;
-		ms = round(spec.tv_nsec / 1.0e6); // Convert nanoseconds to milliseconds
-    
-		printf("[%"PRIdMAX".%03ld] pin %d = %d\n", (intmax_t)s, ms, pin, val);
-	}
-	
 	/* create packet */
 	p.op = LED_CHANGE;
 	p.dev = pin;
