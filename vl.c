@@ -2985,12 +2985,6 @@ int main(int argc, char **argv, char **envp)
     QSIMPLEQ_HEAD(, BlockdevOptions_queue) bdo_queue
         = QSIMPLEQ_HEAD_INITIALIZER(bdo_queue);
 
-        
-        
-    for(int i = 0; i < argc; i++)
-      printf("%s ", argv[i]);
-    printf("\n");    
-        
     module_call_init(MODULE_INIT_TRACE);
 
     qemu_init_cpu_list();
