@@ -25,6 +25,7 @@
 #include "qapi/error.h"
 #include "qemu/sockets.h"
 #include "qemu/main-loop.h"
+#include "qapi/clone-visitor.h"
 #include "qapi/qobject-input-visitor.h"
 #include "qapi/qobject-output-visitor.h"
 #include "qapi-visit.h"
@@ -426,8 +427,9 @@ static struct addrinfo *inet_parse_connect_saddr(InetSocketAddress *saddr,
  * function succeeds, callback will be called when the connection
  * completes, with the file descriptor on success, or -1 on error.
  */
-int inet_connect_saddr(InetSocketAddress *saddr, Error **errp,
-                       NonBlockingConnectHandler *callback, void *opaque)
+int inet_connect_saddr(InetSocketAddress *saddr,
+                       NonBlockingConnectHandler *callback, void *opaque,
+                       Error **errp)
 {
     Error *local_err = NULL;
     struct addrinfo *res, *e;
@@ -658,7 +660,7 @@ int inet_connect(const char *str, Error **errp)
 
     addr = inet_parse(str, errp);
     if (addr != NULL) {
-        sock = inet_connect_saddr(addr, errp, NULL, NULL);
+        sock = inet_connect_saddr(addr, NULL, NULL, errp);
         qapi_free_InetSocketAddress(addr);
     }
     return sock;
@@ -726,9 +728,10 @@ static int vsock_connect_addr(const struct sockaddr_vm *svm, bool *in_progress,
     return sock;
 }
 
-static int vsock_connect_saddr(VsockSocketAddress *vaddr, Error **errp,
+static int vsock_connect_saddr(VsockSocketAddress *vaddr,
                                NonBlockingConnectHandler *callback,
-                               void *opaque)
+                               void *opaque,
+                               Error **errp)
 {
     struct sockaddr_vm svm;
     int sock = -1;
@@ -817,9 +820,9 @@ static void vsock_unsupported(Error **errp)
     error_setg(errp, "socket family AF_VSOCK unsupported");
 }
 
-static int vsock_connect_saddr(VsockSocketAddress *vaddr, Error **errp,
+static int vsock_connect_saddr(VsockSocketAddress *vaddr,
                                NonBlockingConnectHandler *callback,
-                               void *opaque)
+                               void *opaque, Error **errp)
 {
     vsock_unsupported(errp);
     return -1;
@@ -909,8 +912,9 @@ err:
     return -1;
 }
 
-static int unix_connect_saddr(UnixSocketAddress *saddr, Error **errp,
-                              NonBlockingConnectHandler *callback, void *opaque)
+static int unix_connect_saddr(UnixSocketAddress *saddr,
+                              NonBlockingConnectHandler *callback, void *opaque,
+                              Error **errp)
 {
     struct sockaddr_un un;
     ConnectState *connect_state = NULL;
@@ -977,8 +981,9 @@ static int unix_listen_saddr(UnixSocketAddress *saddr,
     return -1;
 }
 
-static int unix_connect_saddr(UnixSocketAddress *saddr, Error **errp,
-                              NonBlockingConnectHandler *callback, void *opaque)
+static int unix_connect_saddr(UnixSocketAddress *saddr,
+                              NonBlockingConnectHandler *callback, void *opaque,
+                              Error **errp)
 {
     error_setg(errp, "unix sockets are not available on windows");
     errno = ENOTSUP;
@@ -1024,7 +1029,7 @@ int unix_connect(const char *path, Error **errp)
 
     saddr = g_new0(UnixSocketAddress, 1);
     saddr->path = g_strdup(path);
-    sock = unix_connect_saddr(saddr, errp, NULL, NULL);
+    sock = unix_connect_saddr(saddr, NULL, NULL, errp);
     qapi_free_UnixSocketAddress(saddr);
     return sock;
 }
@@ -1073,18 +1078,18 @@ fail:
     return NULL;
 }
 
-int socket_connect(SocketAddress *addr, Error **errp,
-                   NonBlockingConnectHandler *callback, void *opaque)
+int socket_connect(SocketAddress *addr, NonBlockingConnectHandler *callback,
+                   void *opaque, Error **errp)
 {
     int fd;
 
     switch (addr->type) {
     case SOCKET_ADDRESS_KIND_INET:
-        fd = inet_connect_saddr(addr->u.inet.data, errp, callback, opaque);
+        fd = inet_connect_saddr(addr->u.inet.data, callback, opaque, errp);
         break;
 
     case SOCKET_ADDRESS_KIND_UNIX:
-        fd = unix_connect_saddr(addr->u.q_unix.data, errp, callback, opaque);
+        fd = unix_connect_saddr(addr->u.q_unix.data, callback, opaque, errp);
         break;
 
     case SOCKET_ADDRESS_KIND_FD:
@@ -1096,7 +1101,7 @@ int socket_connect(SocketAddress *addr, Error **errp,
         break;
 
     case SOCKET_ADDRESS_KIND_VSOCK:
-        fd = vsock_connect_saddr(addr->u.vsock.data, errp, callback, opaque);
+        fd = vsock_connect_saddr(addr->u.vsock.data, callback, opaque, errp);
         break;
 
     default:
@@ -1154,6 +1159,10 @@ int socket_dgram(SocketAddress *remote, SocketAddress *local, Error **errp)
 {
     int fd;
 
+    /*
+     * TODO SOCKET_ADDRESS_KIND_FD when fd is AF_INET or AF_INET6
+     * (although other address families can do SOCK_DGRAM, too)
+     */
     switch (remote->type) {
     case SOCKET_ADDRESS_KIND_INET:
         fd = inet_dgram_saddr(remote->u.inet.data,
@@ -1307,19 +1316,14 @@ char *socket_address_to_string(struct SocketAddress *addr, Error **errp)
 {
     char *buf;
     InetSocketAddress *inet;
-    char host_port[INET6_ADDRSTRLEN + 5 + 4];
 
     switch (addr->type) {
     case SOCKET_ADDRESS_KIND_INET:
         inet = addr->u.inet.data;
         if (strchr(inet->host, ':') == NULL) {
-            snprintf(host_port, sizeof(host_port), "%s:%s", inet->host,
-                    inet->port);
-            buf = g_strdup(host_port);
+            buf = g_strdup_printf("%s:%s", inet->host, inet->port);
         } else {
-            snprintf(host_port, sizeof(host_port), "[%s]:%s", inet->host,
-                    inet->port);
-            buf = g_strdup(host_port);
+            buf = g_strdup_printf("[%s]:%s", inet->host, inet->port);
         }
         break;
 
@@ -1338,9 +1342,38 @@ char *socket_address_to_string(struct SocketAddress *addr, Error **errp)
         break;
 
     default:
-        error_setg(errp, "socket family %d unsupported",
-                   addr->type);
-        return NULL;
+        abort();
     }
     return buf;
+}
+
+SocketAddress *socket_address_crumple(SocketAddressFlat *addr_flat)
+{
+    SocketAddress *addr = g_new(SocketAddress, 1);
+
+    switch (addr_flat->type) {
+    case SOCKET_ADDRESS_FLAT_TYPE_INET:
+        addr->type = SOCKET_ADDRESS_KIND_INET;
+        addr->u.inet.data = QAPI_CLONE(InetSocketAddress,
+                                       &addr_flat->u.inet);
+        break;
+    case SOCKET_ADDRESS_FLAT_TYPE_UNIX:
+        addr->type = SOCKET_ADDRESS_KIND_UNIX;
+        addr->u.q_unix.data = QAPI_CLONE(UnixSocketAddress,
+                                         &addr_flat->u.q_unix);
+        break;
+    case SOCKET_ADDRESS_FLAT_TYPE_VSOCK:
+        addr->type = SOCKET_ADDRESS_KIND_VSOCK;
+        addr->u.vsock.data = QAPI_CLONE(VsockSocketAddress,
+                                        &addr_flat->u.vsock);
+        break;
+    case SOCKET_ADDRESS_FLAT_TYPE_FD:
+        addr->type = SOCKET_ADDRESS_KIND_FD;
+        addr->u.fd.data = QAPI_CLONE(String, &addr_flat->u.fd);
+        break;
+    default:
+        abort();
+    }
+
+    return addr;
 }

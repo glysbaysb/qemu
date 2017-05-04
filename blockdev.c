@@ -1728,7 +1728,7 @@ static void external_snapshot_prepare(BlkActionState *common,
             bdrv_img_create(new_image_file, format,
                             state->old_bs->filename,
                             state->old_bs->drv->format_name,
-                            NULL, size, flags, &local_err, false);
+                            NULL, size, flags, false, &local_err);
             if (local_err) {
                 error_propagate(errp, local_err);
                 return;
@@ -1772,6 +1772,8 @@ static void external_snapshot_prepare(BlkActionState *common,
         return;
     }
 
+    bdrv_set_aio_context(state->new_bs, state->aio_context);
+
     /* This removes our old bs and adds the new bs. This is an operation that
      * can fail, so we need to do it in .prepare; undoing it for abort is
      * always possible. */
@@ -1788,8 +1790,6 @@ static void external_snapshot_commit(BlkActionState *common)
 {
     ExternalSnapshotState *state =
                              DO_UPCAST(ExternalSnapshotState, common, common);
-
-    bdrv_set_aio_context(state->new_bs, state->aio_context);
 
     /* We don't need (or want) to use the transactional
      * bdrv_reopen_multiple() across all the entries at once, because we
@@ -2835,7 +2835,7 @@ void hmp_drive_del(Monitor *mon, const QDict *qdict)
 
     bs = bdrv_find_node(id);
     if (bs) {
-        qmp_x_blockdev_del(id, &local_err);
+        qmp_blockdev_del(id, &local_err);
         if (local_err) {
             error_report_err(local_err);
         }
@@ -3142,7 +3142,7 @@ void qmp_block_commit(bool has_job_id, const char *job_id, const char *device,
         }
         commit_active_start(has_job_id ? job_id : NULL, bs, base_bs,
                             BLOCK_JOB_DEFAULT, speed, on_error,
-                            filter_node_name, NULL, NULL, &local_err, false);
+                            filter_node_name, NULL, NULL, false, &local_err);
     } else {
         BlockDriverState *overlay_bs = bdrv_find_overlay(bs, top_bs);
         if (bdrv_op_is_blocked(overlay_bs, BLOCK_OP_TYPE_COMMIT_TARGET, errp)) {
@@ -3237,10 +3237,10 @@ static BlockJob *do_drive_backup(DriveBackup *backup, BlockJobTxn *txn,
         if (source) {
             bdrv_img_create(backup->target, backup->format, source->filename,
                             source->drv->format_name, NULL,
-                            size, flags, &local_err, false);
+                            size, flags, false, &local_err);
         } else {
             bdrv_img_create(backup->target, backup->format, NULL, NULL, NULL,
-                            size, flags, &local_err, false);
+                            size, flags, false, &local_err);
         }
     }
 
@@ -3531,7 +3531,7 @@ void qmp_drive_mirror(DriveMirror *arg, Error **errp)
         /* create new image w/o backing file */
         assert(format);
         bdrv_img_create(arg->target, format,
-                        NULL, NULL, NULL, size, flags, &local_err, false);
+                        NULL, NULL, NULL, size, flags, false, &local_err);
     } else {
         switch (arg->mode) {
         case NEW_IMAGE_MODE_EXISTING:
@@ -3541,7 +3541,7 @@ void qmp_drive_mirror(DriveMirror *arg, Error **errp)
             bdrv_img_create(arg->target, format,
                             source->filename,
                             source->drv->format_name,
-                            NULL, size, flags, &local_err, false);
+                            NULL, size, flags, false, &local_err);
             break;
         default:
             abort();
@@ -3900,7 +3900,7 @@ fail:
     visit_free(v);
 }
 
-void qmp_x_blockdev_del(const char *node_name, Error **errp)
+void qmp_blockdev_del(const char *node_name, Error **errp)
 {
     AioContext *aio_context;
     BlockDriverState *bs;

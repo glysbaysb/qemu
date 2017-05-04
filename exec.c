@@ -223,6 +223,12 @@ struct CPUAddressSpace {
     MemoryListener tcg_as_listener;
 };
 
+struct DirtyBitmapSnapshot {
+    ram_addr_t start;
+    ram_addr_t end;
+    unsigned long dirty[];
+};
+
 #endif
 
 #if !defined(CONFIG_USER_ONLY)
@@ -1061,6 +1067,75 @@ bool cpu_physical_memory_test_and_clear_dirty(ram_addr_t start,
     return dirty;
 }
 
+DirtyBitmapSnapshot *cpu_physical_memory_snapshot_and_clear_dirty
+     (ram_addr_t start, ram_addr_t length, unsigned client)
+{
+    DirtyMemoryBlocks *blocks;
+    unsigned long align = 1UL << (TARGET_PAGE_BITS + BITS_PER_LEVEL);
+    ram_addr_t first = QEMU_ALIGN_DOWN(start, align);
+    ram_addr_t last  = QEMU_ALIGN_UP(start + length, align);
+    DirtyBitmapSnapshot *snap;
+    unsigned long page, end, dest;
+
+    snap = g_malloc0(sizeof(*snap) +
+                     ((last - first) >> (TARGET_PAGE_BITS + 3)));
+    snap->start = first;
+    snap->end   = last;
+
+    page = first >> TARGET_PAGE_BITS;
+    end  = last  >> TARGET_PAGE_BITS;
+    dest = 0;
+
+    rcu_read_lock();
+
+    blocks = atomic_rcu_read(&ram_list.dirty_memory[client]);
+
+    while (page < end) {
+        unsigned long idx = page / DIRTY_MEMORY_BLOCK_SIZE;
+        unsigned long offset = page % DIRTY_MEMORY_BLOCK_SIZE;
+        unsigned long num = MIN(end - page, DIRTY_MEMORY_BLOCK_SIZE - offset);
+
+        assert(QEMU_IS_ALIGNED(offset, (1 << BITS_PER_LEVEL)));
+        assert(QEMU_IS_ALIGNED(num,    (1 << BITS_PER_LEVEL)));
+        offset >>= BITS_PER_LEVEL;
+
+        bitmap_copy_and_clear_atomic(snap->dirty + dest,
+                                     blocks->blocks[idx] + offset,
+                                     num);
+        page += num;
+        dest += num >> BITS_PER_LEVEL;
+    }
+
+    rcu_read_unlock();
+
+    if (tcg_enabled()) {
+        tlb_reset_dirty_range_all(start, length);
+    }
+
+    return snap;
+}
+
+bool cpu_physical_memory_snapshot_get_dirty(DirtyBitmapSnapshot *snap,
+                                            ram_addr_t start,
+                                            ram_addr_t length)
+{
+    unsigned long page, end;
+
+    assert(start >= snap->start);
+    assert(start + length <= snap->end);
+
+    end = TARGET_PAGE_ALIGN(start + length - snap->start) >> TARGET_PAGE_BITS;
+    page = (start - snap->start) >> TARGET_PAGE_BITS;
+
+    while (page < end) {
+        if (test_bit(page, snap->dirty)) {
+            return true;
+        }
+        page++;
+    }
+    return false;
+}
+
 /* Called from RCU critical section */
 hwaddr memory_region_section_get_iotlb(CPUState *cpu,
                                        MemoryRegionSection *section,
@@ -1528,7 +1603,7 @@ static ram_addr_t find_ram_offset(ram_addr_t size)
     return offset;
 }
 
-ram_addr_t last_ram_offset(void)
+unsigned long last_ram_page(void)
 {
     RAMBlock *block;
     ram_addr_t last = 0;
@@ -1538,7 +1613,7 @@ ram_addr_t last_ram_offset(void)
         last = MAX(last, block->offset + block->max_length);
     }
     rcu_read_unlock();
-    return last;
+    return last >> TARGET_PAGE_BITS;
 }
 
 static void qemu_ram_setup_dump(void *addr, ram_addr_t size)
@@ -1727,7 +1802,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
     ram_addr_t old_ram_size, new_ram_size;
     Error *err = NULL;
 
-    old_ram_size = last_ram_offset() >> TARGET_PAGE_BITS;
+    old_ram_size = last_ram_page();
 
     qemu_mutex_lock_ramlist();
     new_block->offset = find_ram_offset(new_block->max_length);
@@ -1758,7 +1833,6 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
     new_ram_size = MAX(old_ram_size,
               (new_block->offset + new_block->max_length) >> TARGET_PAGE_BITS);
     if (new_ram_size > old_ram_size) {
-        migration_bitmap_extend(old_ram_size, new_ram_size);
         dirty_memory_extend(old_ram_size, new_ram_size);
     }
     /* Keep the list sorted from biggest to smallest block.  Unlike QTAILQ,
@@ -3236,75 +3310,33 @@ int64_t address_space_cache_init(MemoryRegionCache *cache,
                                  hwaddr len,
                                  bool is_write)
 {
-    hwaddr l, xlat;
-    MemoryRegion *mr;
-    void *ptr;
-
-    assert(len > 0);
-
-    l = len;
-    mr = address_space_translate(as, addr, &xlat, &l, is_write);
-    if (!memory_access_is_direct(mr, is_write)) {
-        return -EINVAL;
-    }
-
-    l = address_space_extend_translation(as, addr, len, mr, xlat, l, is_write);
-    ptr = qemu_ram_ptr_length(mr->ram_block, xlat, &l);
-
-    cache->xlat = xlat;
-    cache->is_write = is_write;
-    cache->mr = mr;
-    cache->ptr = ptr;
-    cache->len = l;
-    memory_region_ref(cache->mr);
-
-    return l;
+    cache->len = len;
+    cache->as = as;
+    cache->xlat = addr;
+    return len;
 }
 
 void address_space_cache_invalidate(MemoryRegionCache *cache,
                                     hwaddr addr,
                                     hwaddr access_len)
 {
-    assert(cache->is_write);
-    invalidate_and_set_dirty(cache->mr, addr + cache->xlat, access_len);
 }
 
 void address_space_cache_destroy(MemoryRegionCache *cache)
 {
-    if (!cache->mr) {
-        return;
-    }
-
-    if (xen_enabled()) {
-        xen_invalidate_map_cache_entry(cache->ptr);
-    }
-    memory_region_unref(cache->mr);
-    cache->mr = NULL;
-}
-
-/* Called from RCU critical section.  This function has the same
- * semantics as address_space_translate, but it only works on a
- * predefined range of a MemoryRegion that was mapped with
- * address_space_cache_init.
- */
-static inline MemoryRegion *address_space_translate_cached(
-    MemoryRegionCache *cache, hwaddr addr, hwaddr *xlat,
-    hwaddr *plen, bool is_write)
-{
-    assert(addr < cache->len && *plen <= cache->len - addr);
-    *xlat = addr + cache->xlat;
-    return cache->mr;
+    cache->as = NULL;
 }
 
 #define ARG1_DECL                MemoryRegionCache *cache
 #define ARG1                     cache
 #define SUFFIX                   _cached
-#define TRANSLATE(...)           address_space_translate_cached(cache, __VA_ARGS__)
+#define TRANSLATE(addr, ...)     \
+    address_space_translate(cache->as, cache->xlat + (addr), __VA_ARGS__)
 #define IS_DIRECT(mr, is_write)  true
-#define MAP_RAM(mr, ofs)         (cache->ptr + (ofs - cache->xlat))
-#define INVALIDATE(mr, ofs, len) ((void)0)
-#define RCU_READ_LOCK()          ((void)0)
-#define RCU_READ_UNLOCK()        ((void)0)
+#define MAP_RAM(mr, ofs)         qemu_map_ram_ptr((mr)->ram_block, ofs)
+#define INVALIDATE(mr, ofs, len) invalidate_and_set_dirty(mr, ofs, len)
+#define RCU_READ_LOCK()          rcu_read_lock()
+#define RCU_READ_UNLOCK()        rcu_read_unlock()
 #include "memory_ldst.inc.c"
 
 /* virtual memory access for debug (includes writing to ROM) */
@@ -3349,9 +3381,9 @@ int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
  * Allows code that needs to deal with migration bitmaps etc to still be built
  * target independent.
  */
-size_t qemu_target_page_bits(void)
+size_t qemu_target_page_size(void)
 {
-    return TARGET_PAGE_BITS;
+    return TARGET_PAGE_SIZE;
 }
 
 #endif

@@ -207,6 +207,12 @@ void qmp_cont(Error **errp)
         }
     }
 
+    blk_resume_after_migration(&local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
     if (runstate_check(RUN_STATE_INMIGRATE)) {
         autostart = 1;
     } else {
@@ -539,11 +545,6 @@ DevicePropertyInfoList *qmp_device_list_properties(const char *typename,
     if (object_class_is_abstract(klass)) {
         error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "typename",
                    "non-abstract device type");
-        return NULL;
-    }
-
-    if (DEVICE_CLASS(klass)->cannot_destroy_with_object_finalize_yet) {
-        error_setg(errp, "Can't list properties of device '%s'", typename);
         return NULL;
     }
 

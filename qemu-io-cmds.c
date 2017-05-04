@@ -35,6 +35,13 @@ static int compare_cmdname(const void *a, const void *b)
 
 void qemuio_add_command(const cmdinfo_t *ci)
 {
+    /* ci->perm assumes a file is open, but the GLOBAL and NOFILE_OK
+     * flags allow it not to be, so that combination is invalid.
+     * Catch it now rather than letting it manifest as a crash if a
+     * particular set of command line options are used.
+     */
+    assert(ci->perm == 0 ||
+           (ci->flags & (CMD_FLAG_GLOBAL | CMD_NOFILE_OK)) == 0);
     cmdtab = g_renew(cmdinfo_t, cmdtab, ++ncmds);
     cmdtab[ncmds - 1] = *ci;
     qsort(cmdtab, ncmds, sizeof(*cmdtab), compare_cmdname);
@@ -514,7 +521,7 @@ static int do_co_pwrite_zeroes(BlockBackend *blk, int64_t offset,
     }
 
     co = qemu_coroutine_create(co_pwrite_zeroes_entry, &data);
-    qemu_coroutine_enter(co);
+    bdrv_coroutine_enter(blk_bs(blk), co);
     while (!data.done) {
         aio_poll(blk_get_aio_context(blk), true);
     }

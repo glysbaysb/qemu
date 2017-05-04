@@ -1112,10 +1112,11 @@ static void mirror_start_job(const char *job_id, BlockDriverState *bs,
                              BlockdevOnError on_target_error,
                              bool unmap,
                              BlockCompletionFunc *cb,
-                             void *opaque, Error **errp,
+                             void *opaque,
                              const BlockJobDriver *driver,
                              bool is_none_mode, BlockDriverState *base,
-                             bool auto_complete, const char *filter_node_name)
+                             bool auto_complete, const char *filter_node_name,
+                             Error **errp)
 {
     MirrorBlockJob *s;
     BlockDriverState *mirror_top_bs;
@@ -1148,9 +1149,10 @@ static void mirror_start_job(const char *job_id, BlockDriverState *bs,
         return;
     }
     mirror_top_bs->total_sectors = bs->total_sectors;
+    bdrv_set_aio_context(mirror_top_bs, bdrv_get_aio_context(bs));
 
     /* bdrv_append takes ownership of the mirror_top_bs reference, need to keep
-     * it alive until block_job_create() even if bs has no parent. */
+     * it alive until block_job_create() succeeds even if bs has no parent. */
     bdrv_ref(mirror_top_bs);
     bdrv_drained_begin(bs);
     bdrv_append(mirror_top_bs, bs, &local_err);
@@ -1168,10 +1170,12 @@ static void mirror_start_job(const char *job_id, BlockDriverState *bs,
                          BLK_PERM_CONSISTENT_READ | BLK_PERM_WRITE_UNCHANGED |
                          BLK_PERM_WRITE | BLK_PERM_GRAPH_MOD, speed,
                          creation_flags, cb, opaque, errp);
-    bdrv_unref(mirror_top_bs);
     if (!s) {
         goto fail;
     }
+    /* The block job now has a reference to this node */
+    bdrv_unref(mirror_top_bs);
+
     s->source = bs;
     s->mirror_top_bs = mirror_top_bs;
 
@@ -1242,6 +1246,10 @@ static void mirror_start_job(const char *job_id, BlockDriverState *bs,
 
 fail:
     if (s) {
+        /* Make sure this BDS does not go away until we have completed the graph
+         * changes below */
+        bdrv_ref(mirror_top_bs);
+
         g_free(s->replaces);
         blk_unref(s->target);
         block_job_unref(&s->common);
@@ -1250,6 +1258,8 @@ fail:
     bdrv_child_try_set_perm(mirror_top_bs->backing, 0, BLK_PERM_ALL,
                             &error_abort);
     bdrv_replace_node(mirror_top_bs, backing_bs(mirror_top_bs), &error_abort);
+
+    bdrv_unref(mirror_top_bs);
 }
 
 void mirror_start(const char *job_id, BlockDriverState *bs,
@@ -1271,17 +1281,17 @@ void mirror_start(const char *job_id, BlockDriverState *bs,
     base = mode == MIRROR_SYNC_MODE_TOP ? backing_bs(bs) : NULL;
     mirror_start_job(job_id, bs, BLOCK_JOB_DEFAULT, target, replaces,
                      speed, granularity, buf_size, backing_mode,
-                     on_source_error, on_target_error, unmap, NULL, NULL, errp,
+                     on_source_error, on_target_error, unmap, NULL, NULL,
                      &mirror_job_driver, is_none_mode, base, false,
-                     filter_node_name);
+                     filter_node_name, errp);
 }
 
 void commit_active_start(const char *job_id, BlockDriverState *bs,
                          BlockDriverState *base, int creation_flags,
                          int64_t speed, BlockdevOnError on_error,
                          const char *filter_node_name,
-                         BlockCompletionFunc *cb, void *opaque, Error **errp,
-                         bool auto_complete)
+                         BlockCompletionFunc *cb, void *opaque,
+                         bool auto_complete, Error **errp)
 {
     int orig_base_flags;
     Error *local_err = NULL;
@@ -1294,9 +1304,9 @@ void commit_active_start(const char *job_id, BlockDriverState *bs,
 
     mirror_start_job(job_id, bs, creation_flags, base, NULL, speed, 0, 0,
                      MIRROR_LEAVE_BACKING_CHAIN,
-                     on_error, on_error, true, cb, opaque, &local_err,
+                     on_error, on_error, true, cb, opaque,
                      &commit_active_job_driver, false, base, auto_complete,
-                     filter_node_name);
+                     filter_node_name, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         goto error_restore_flags;

@@ -474,6 +474,13 @@ static NFSServer *nfs_config(QDict *options, Error **errp)
         goto out;
     }
 
+    /*
+     * Caution: this works only because all scalar members of
+     * NFSServer are QString in @crumpled_addr.  The visitor expects
+     * @crumpled_addr to be typed according to the QAPI schema.  It
+     * is when @options come from -blockdev or blockdev_add.  But when
+     * they come from -drive, they're all QString.
+     */
     iv = qobject_input_visitor_new(crumpled_addr);
     visit_type_NFSServer(iv, NULL, &server, &local_error);
     if (local_error) {
@@ -490,7 +497,7 @@ out:
 
 
 static int64_t nfs_client_open(NFSClient *client, QDict *options,
-                               int flags, Error **errp, int open_flags)
+                               int flags, int open_flags, Error **errp)
 {
     int ret = -EINVAL;
     QemuOpts *opts = NULL;
@@ -656,7 +663,7 @@ static int nfs_file_open(BlockDriverState *bs, QDict *options, int flags,
 
     ret = nfs_client_open(client, options,
                           (flags & BDRV_O_RDWR) ? O_RDWR : O_RDONLY,
-                          errp, bs->open_flags);
+                          bs->open_flags, errp);
     if (ret < 0) {
         return ret;
     }
@@ -698,7 +705,7 @@ static int nfs_file_create(const char *url, QemuOpts *opts, Error **errp)
         goto out;
     }
 
-    ret = nfs_client_open(client, options, O_CREAT, errp, 0);
+    ret = nfs_client_open(client, options, O_CREAT, 0, errp);
     if (ret < 0) {
         goto out;
     }

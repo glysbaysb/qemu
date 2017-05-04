@@ -1410,6 +1410,8 @@ void register_displaychangelistener(DisplayChangeListener *dcl)
     static DisplaySurface *dummy;
     QemuConsole *con;
 
+    assert(!dcl->ds);
+
     if (dcl->ops->dpy_gl_ctx_create) {
         /* display has opengl support */
         assert(dcl->con);
@@ -1538,6 +1540,8 @@ void dpy_gfx_replace_surface(QemuConsole *con,
     DisplaySurface *old_surface = con->surface;
     DisplayChangeListener *dcl;
 
+    assert(old_surface != surface);
+
     con->surface = surface;
     QLIST_FOREACH(dcl, &s->listeners, next) {
         if (con != (dcl->con ? dcl->con : active_console)) {
@@ -1576,17 +1580,22 @@ bool dpy_gfx_check_format(QemuConsole *con,
 }
 
 /*
- * Safe DPY refresh for TCG guests. This runs when the TCG vCPUs are
- * quiescent so we can avoid races between dirty page tracking for
- * direct frame-buffer access by the guest.
+ * Safe DPY refresh for TCG guests. We use the exclusive mechanism to
+ * ensure the TCG vCPUs are quiescent so we can avoid races between
+ * dirty page tracking for direct frame-buffer access by the guest.
  *
  * This is a temporary stopgap until we've fixed the dirty tracking
  * races in display adapters.
  */
-static void do_safe_dpy_refresh(CPUState *cpu, run_on_cpu_data opaque)
+static void do_safe_dpy_refresh(DisplayChangeListener *dcl)
 {
-    DisplayChangeListener *dcl = opaque.host_ptr;
+    qemu_mutex_unlock_iothread();
+    start_exclusive();
+    qemu_mutex_lock_iothread();
     dcl->ops->dpy_refresh(dcl);
+    qemu_mutex_unlock_iothread();
+    end_exclusive();
+    qemu_mutex_lock_iothread();
 }
 
 static void dpy_refresh(DisplayState *s)
@@ -1596,8 +1605,7 @@ static void dpy_refresh(DisplayState *s)
     QLIST_FOREACH(dcl, &s->listeners, next) {
         if (dcl->ops->dpy_refresh) {
             if (tcg_enabled()) {
-                async_safe_run_on_cpu(first_cpu, do_safe_dpy_refresh,
-                                      RUN_ON_CPU_HOST_PTR(dcl));
+                do_safe_dpy_refresh(dcl);
             } else {
                 dcl->ops->dpy_refresh(dcl);
             }
