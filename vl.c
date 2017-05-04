@@ -1939,7 +1939,6 @@ typedef struct QEMUOption {
 
 static const QEMUOption qemu_options[] = {
     { "h", 0, QEMU_OPTION_h, QEMU_ARCH_ALL },
-    { "verbose", 0, QEMU_OPTION_verbose, QEMU_ARCH_ALL },
 #define QEMU_OPTIONS_GENERATE_OPTIONS
 #include "qemu-options-wrapper.h"
     { NULL },
@@ -3357,8 +3356,6 @@ int main(int argc, char **argv, char **envp)
                 version();
                 exit(0);
                 break;
-            case QEMU_OPTION_verbose:
-                break;
             case QEMU_OPTION_m:
                 opts = qemu_opts_parse_noisily(qemu_find_opts("memory"),
                                                optarg, true);
@@ -3701,7 +3698,6 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_M:
             case QEMU_OPTION_machine:
-            case QEMU_OPTION_board:
                 olist = qemu_find_opts("machine");
                 opts = qemu_opts_parse_noisily(olist, optarg, true);
                 if (!opts) {
