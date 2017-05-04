@@ -54,8 +54,8 @@
    in C99, so this code will just refuse to compile
    if OPERATION will ever not be 8bit sized */
 enum __attribute__ ((__packed__)) OPERATION {
-	LED_CHANGE,
-	SWITCH_CHANGE
+    LED_CHANGE,
+    SWITCH_CHANGE
 };
 /* *sigh* QEMU still is C99, so there is no inbuilt static_assert:
   http://stackoverflow.com/a/3385694/4005233*/
@@ -63,77 +63,78 @@ enum __attribute__ ((__packed__)) OPERATION {
 STATIC_ASSERT(sizeof(enum OPERATION)==1, enforce_protocol_crossplattform);
 
 typedef struct PACKET {
-	enum OPERATION op;
-	int8_t dev;
-	int8_t val;
+    enum OPERATION op;
+    int8_t dev;
+    int8_t val;
 } _PACKET;
 
 static void handle_switch_packet(BCM2835GpioState* s, struct PACKET* p) {
-	if(p->dev > sizeof(s->out))
-		return;
+    if(p->dev > sizeof(s->out))
+        return;
 
-	// if this pin is configured as input
-	if(s->fsel[p->dev] == 0)
-	{
-		qemu_set_irq(s->out[p->dev], p->val);
+    // if this pin is configured as input
+    if(s->fsel[p->dev] == 0)
+    {
+        qemu_set_irq(s->out[p->dev], p->val);
 
-		// FSEL0?
-		if(p->dev < 32)
-		{
-			if(p->val)
-				s->lev0 |= (1 << p->dev);
-			else
-				s->lev0 &= ~(1 << p->dev);
-		}
-		else 
-		{
-			if(p->val)
-				s->lev1 |= (1 << (p->dev - 32));
-			else
-				s->lev1 &= ~(1 << (p->dev - 32));
-		}
-	}
+        // FSEL0?
+        if(p->dev < 32)
+        {
+            if(p->val)
+                s->lev0 |= (1 << p->dev);
+            else
+                s->lev0 &= ~(1 << p->dev);
+        }
+        else 
+        {
+            if(p->val)
+                s->lev1 |= (1 << (p->dev - 32));
+            else
+                s->lev1 &= ~(1 << (p->dev - 32));
+        }
+    }
 }
 
 static void socket_callback(void* opaque) {
-	int8_t buf[128] = {0};
-	ssize_t cnt;
+    int8_t buf[128] = {0};
+    ssize_t cnt;
 
     BCM2835GpioState* s = BCM2835_GPIO(opaque);
-	if((cnt = read(s->sockIn, buf, 128)) < 1) {
-		perror(__func__);
-	}
-	assert(cnt >= sizeof(struct PACKET));
-	struct PACKET* p = (struct PACKET*)buf;
+    if((cnt = read(s->sockIn, buf, 128)) < 1) {
+        perror(__func__);
+        return;
+    }
+    assert(cnt >= sizeof(struct PACKET));
+    struct PACKET* p = (struct PACKET*)buf;
 
-	if(p->op == SWITCH_CHANGE) 
-		handle_switch_packet(s, p);
-	else
-		fprintf(stderr, "unhandled packet for %d %d\n", p->dev, p->val);
+    if(p->op == SWITCH_CHANGE) 
+        handle_switch_packet(s, p);
+    else
+        fprintf(stderr, "unhandled packet for %d %d\n", p->dev, p->val);
 }
 
 static void pin_changed(int sock, int pin, int val) 
 {
-	struct PACKET p = {0};
-	struct sockaddr_in sin;
+    struct PACKET p = {0};
+    struct sockaddr_in sin;
 
-	/* create packet */
-	p.op = LED_CHANGE;
-	p.dev = pin;
-	p.val = val;
+    /* create packet */
+    p.op = LED_CHANGE;
+    p.dev = pin;
+    p.val = val;
 
-	/* create broadcast addr struct */
-	sin.sin_family = AF_INET;
+    /* create broadcast addr struct */
+    sin.sin_family = AF_INET;
 #ifdef WINVER /*WINDOWS*/
-	sin.sin_port = htons(30000);
+    sin.sin_port = htons(30000);
 #else
-	sin.sin_port = (in_port_t)htons(30000);
+    sin.sin_port = (in_port_t)htons(30000);
 #endif
-	sin.sin_addr.s_addr = htonl(INADDR_BROADCAST);	
+    sin.sin_addr.s_addr = htonl(INADDR_BROADCAST);    
 
-	if(sendto(sock, &p, sizeof(p), 0, (struct sockaddr*)&sin, sizeof(sin)) != sizeof(p)) {
-		perror("pin_changed");
-	}
+    if(sendto(sock, &p, sizeof(p), 0, (struct sockaddr*)&sin, sizeof(sin)) != sizeof(p)) {
+        perror("pin_changed");
+    }
 }
 
 static uint32_t gpfsel_get(BCM2835GpioState *s, uint8_t reg)
@@ -203,7 +204,7 @@ static void gpset(BCM2835GpioState *s,
     int i;
     for (i = 0; i < count; i++) {
         if ((changes & cur) && (gpfsel_is_out(s, start + i))) {
-			pin_changed(s->sockOut, start + i, 1);
+            pin_changed(s->sockOut, start + i, 1);
             qemu_set_irq(s->out[start + i], 1);
         }
         cur <<= 1;
@@ -221,7 +222,7 @@ static void gpclr(BCM2835GpioState *s,
     int i;
     for (i = 0; i < count; i++) {
         if ((changes & cur) && (gpfsel_is_out(s, start + i))) {
-			pin_changed(s->sockOut, start + i, 0);
+            pin_changed(s->sockOut, start + i, 0);
             qemu_set_irq(s->out[start + i], 0);
         }
         cur <<= 1;
@@ -416,45 +417,45 @@ static void bcm2835_gpio_realize(DeviceState *dev, Error **errp)
     }
     s->sdbus_sdhost = SD_BUS(obj);
 
-	/* create sockIn */
-	if((s->sockIn = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-	{
+    /* create sockIn */
+    if((s->sockIn = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    {
         error_setg(errp, "%s: cannot create sockIn: %s",
                 __func__, error_get_pretty(err));
-		return;
-	}
+        return;
+    }
 
-	struct sockaddr_in sin = {0};
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(30001);
-	sin.sin_addr.s_addr = INADDR_ANY;
+    struct sockaddr_in sin = {0};
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(30001);
+    sin.sin_addr.s_addr = INADDR_ANY;
 
-	if(bind(s->sockIn, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
+    if(bind(s->sockIn, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
         error_setg(errp, "%s: cannot bind sockIn: %s",
                 __func__, error_get_pretty(err));
-		return;
-	}
+        return;
+    }
 
-	/* register socket in event loop */
-	qemu_set_fd_handler(s->sockIn, socket_callback, NULL, s);
+    /* register socket in event loop */
+    qemu_set_fd_handler(s->sockIn, socket_callback, NULL, s);
 
-	/* create sockOut */
-	if((s->sockOut = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-	{
+    /* create sockOut */
+    if((s->sockOut = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+    {
         error_setg(errp, "%s: cannot create sockOut: %s",
                 __func__, error_get_pretty(err));
-		return;
-	}
+        return;
+    }
 
-	/* give sockOut broadcast permissions */
-	int broadcastEnable = 1;
-	if(setsockopt(s->sockOut, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, 
-				sizeof(broadcastEnable))) 
-	{
+    /* give sockOut broadcast permissions */
+    int broadcastEnable = 1;
+    if(setsockopt(s->sockOut, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, 
+                sizeof(broadcastEnable))) 
+    {
         error_setg(errp, "%s: giving sockOut broadcast permission failed: %s",
                 __func__, error_get_pretty(err));
-		return;
-	}
+        return;
+    }
 
 }
 
