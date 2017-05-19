@@ -611,6 +611,7 @@ NetBSD)
   audio_possible_drivers="oss sdl"
   oss_lib="-lossaudio"
   HOST_VARIANT_DIR="netbsd"
+  supported_os="yes"
 ;;
 OpenBSD)
   bsd="yes"
@@ -1334,7 +1335,7 @@ Advanced options (experts only):
   --oss-lib                path to OSS library
   --cpu=CPU                Build for host CPU [$cpu]
   --with-coroutine=BACKEND coroutine backend. Supported options:
-                           gthread, ucontext, sigaltstack, windows
+                           ucontext, sigaltstack, windows
   --enable-gcov            enable test coverage analysis with gcov
   --gcov=GCOV              use specified gcov [$gcov_tool]
   --disable-blobs          disable installing provided firmware blobs
@@ -2014,7 +2015,7 @@ if test "$xen" != "no" ; then
   else
 
     xen_libs="-lxenstore -lxenctrl -lxenguest"
-    xen_stable_libs="-lxencall -lxenforeignmemory -lxengnttab -lxenevtchn"
+    xen_stable_libs="-lxenforeignmemory -lxengnttab -lxenevtchn"
 
     # First we test whether Xen headers and libraries are available.
     # If no, we are done and there is no Xen support.
@@ -4418,10 +4419,8 @@ fi
 # check and set a backend for coroutine
 
 # We prefer ucontext, but it's not always possible. The fallback
-# is sigcontext. gthread is not selectable except explicitly, because
-# it is not functional enough to run QEMU proper. (It is occasionally
-# useful for debugging purposes.)  On Windows the only valid backend
-# is the Windows-specific one.
+# is sigcontext. On Windows the only valid backend is the Windows
+# specific one.
 
 ucontext_works=no
 if test "$darwin" != "yes"; then
@@ -4460,7 +4459,7 @@ else
       feature_not_found "ucontext"
     fi
     ;;
-  gthread|sigaltstack)
+  sigaltstack)
     if test "$mingw32" = "yes"; then
       error_exit "only the 'windows' coroutine backend is valid for Windows"
     fi
@@ -4472,14 +4471,7 @@ else
 fi
 
 if test "$coroutine_pool" = ""; then
-  if test "$coroutine" = "gthread"; then
-    coroutine_pool=no
-  else
-    coroutine_pool=yes
-  fi
-fi
-if test "$coroutine" = "gthread" -a "$coroutine_pool" = "yes"; then
-  error_exit "'gthread' coroutine backend does not support pool (use --disable-coroutine-pool)"
+  coroutine_pool=yes
 fi
 
 if test "$debug_stack_usage" = "yes"; then
@@ -4850,6 +4842,20 @@ EOF
     fi
     vxhs=no
   fi
+fi
+
+##########################################
+# check for _Static_assert()
+
+have_static_assert=no
+cat > $TMPC << EOF
+_Static_assert(1, "success");
+int main(void) {
+    return 0;
+}
+EOF
+if compile_prog "" "" ; then
+    have_static_assert=yes
 fi
 
 ##########################################
@@ -5848,6 +5854,10 @@ if test "$have_sysmacros" = "yes" ; then
   echo "CONFIG_SYSMACROS=y" >> $config_host_mak
 fi
 
+if test "$have_static_assert" = "yes" ; then
+  echo "CONFIG_STATIC_ASSERT=y" >> $config_host_mak
+fi
+
 # Hold two types of flag:
 #   CONFIG_THREAD_SETNAME_BYTHREAD  - we've got a way of setting the name on
 #                                     a thread we have a handle to
@@ -6023,9 +6033,11 @@ TARGET_ABI_DIR=""
 
 case "$target_name" in
   i386)
+    gdb_xml_files="i386-32bit-core.xml"
   ;;
   x86_64)
     TARGET_BASE_ARCH=i386
+    gdb_xml_files="i386-64bit-core.xml"
   ;;
   alpha)
     mttcg="yes"
@@ -6090,12 +6102,14 @@ case "$target_name" in
   ppc64)
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
+    mttcg=yes
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml power-vsx.xml"
   ;;
   ppc64le)
     TARGET_ARCH=ppc64
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
+    mttcg=yes
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml power-vsx.xml"
   ;;
   ppc64abi32)
