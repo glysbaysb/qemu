@@ -118,6 +118,18 @@ static void bcm2835_peripherals_init(Object *obj)
                                    OBJECT(&s->sdhci.sdbus), &error_abort);
     object_property_add_const_link(OBJECT(&s->gpio), "sdbus-sdhost",
                                    OBJECT(&s->sdhost.sdbus), &error_abort);
+
+    /* System timer */
+    object_initialize(&s->st, sizeof(s->st), TYPE_BCM2835_ST);
+    object_property_add_child(obj, "systimer", OBJECT(&s->st), NULL);
+    qdev_set_parent_bus(DEVICE(&s->st), sysbus_get_default());
+
+    /* ARM timer */
+    object_initialize(&s->timer, sizeof(s->timer), TYPE_BCM2835_TIMER);
+    object_property_add_child(obj, "armtimer", OBJECT(&s->timer), NULL);
+    qdev_set_parent_bus(DEVICE(&s->timer), sysbus_get_default());
+
+	/* in 0xabu's fork: USB, MHPI, power, SDHCI */
 }
 
 static void bcm2835_peripherals_realize(DeviceState *dev, Error **errp)
@@ -331,6 +343,43 @@ static void bcm2835_peripherals_realize(DeviceState *dev, Error **errp)
         error_propagate(errp, err);
         return;
     }
+	
+    /* System timer */
+    object_property_set_bool(OBJECT(&s->st), true, "realized", &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
+
+    memory_region_add_subregion(&s->peri_mr, ST_OFFSET,
+                sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->st), 0));
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->st), 0,
+        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_GPU_IRQ,
+                               INTERRUPT_TIMER0));
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->st), 1,
+        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_GPU_IRQ,
+                               INTERRUPT_TIMER1));
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->st), 2,
+        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_GPU_IRQ,
+                               INTERRUPT_TIMER2));
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->st), 3,
+        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_GPU_IRQ,
+                               INTERRUPT_TIMER3));
+
+    /* ARM timer */
+    object_property_set_bool(OBJECT(&s->timer), true, "realized", &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
+
+    memory_region_add_subregion(&s->peri_mr, ARMCTRL_TIMER0_1_OFFSET,
+                sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->timer), 0));
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->timer), 0,
+        qdev_get_gpio_in_named(DEVICE(&s->ic), BCM2835_IC_ARM_IRQ,
+                               INTERRUPT_ARM_TIMER));
+
+
 }
 
 static void bcm2835_peripherals_class_init(ObjectClass *oc, void *data)
